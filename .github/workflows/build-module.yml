@@ -1,4 +1,4 @@
-name: Create Release on Tag
+name: Build AmneziaWG for ImmortalWrt x86_64
 on:
   workflow_dispatch:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    name: "v${{ matrix.build_env.tag }} - ${{ matrix.build_env.pkgarch}} :: ${{ matrix.build_env.target}}/${{ matrix.build_env.subtarget}} build"
+    name: "ImmortalWrt ${{ matrix.build_env.tag }} - ${{ matrix.build_env.pkgarch}} build"
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -16,102 +16,79 @@ jobs:
             pkgarch: x86_64
             target: x86
             subtarget: 64
-            vermagic: "e7e50fbc0aafa7443418a79928da2602-r1"
+            vermagic: "e7e50fbc0aafa7443418a79928da2602-r1" 
 
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: openwrt/openwrt
+          repository: immortalwrt/immortalwrt
           ref: v${{ matrix.build_env.tag }}
           fetch-depth: 0
 
       - name: Cache Tools and Kernel
         id: cache-tools-kernel
         uses: actions/cache@v4
-        env:
-          cache-name: "cache-tools-kernel-${{ matrix.build_env.tag }}-${{ matrix.build_env.pkgarch}}-${{ matrix.build_env.target}}-${{ matrix.build_env.subtarget}}"
         with:
           path: "**"
-          key: ${{ runner.os }}-build-vm4-${{ env.cache-name }}
+          key: ${{ runner.os }}-immortal-build-${{ matrix.build_env.tag }}-${{ matrix.build_env.pkgarch}}
           restore-keys: |
-            ${{ runner.os }}-build-vm4-cache-tools-kernel-${{ matrix.build_env.tag }}-${{ matrix.build_env.pkgarch}}-
+            ${{ runner.os }}-immortal-build-${{ matrix.build_env.tag }}-
 
       - name: Building kernel and tools
-        #if: ${{ steps.cache-tools-kernel.outputs.cache-hit != 'true' }}
         run: |
-          echo "pkgarch: ${{ matrix.build_env.pkgarch}}, target:${{ matrix.build_env.target}}, subtarget: ${{ matrix.build_env.subtarget}}"
-
-          # Setup & install feeds
-          wget https://downloads.openwrt.org/releases/${{ matrix.build_env.tag }}/targets/${{ matrix.build_env.target}}/${{ matrix.build_env.subtarget}}/feeds.buildinfo -O feeds.conf
+          BASE_URL="https://downloads.immortalwrt.org/releases/${{ matrix.build_env.tag }}/targets/${{ matrix.build_env.target}}/${{ matrix.build_env.subtarget}}"
+          
+          wget $BASE_URL/feeds.buildinfo -O feeds.conf
+          
           echo "src-git awgopenwrt https://github.com/yury-sannikov/awg-openwrt.git" >> ./feeds.conf
+          
           ./scripts/feeds update && ./scripts/feeds install -a
 
-          # Setup config with AWG and dependencies
-          wget https://downloads.openwrt.org/releases/${{ matrix.build_env.tag }}/targets/${{ matrix.build_env.target}}/${{ matrix.build_env.subtarget}}/config.buildinfo -O .config
-          echo "CONFIG_PACKAGE_kmod-amneziawg=m" >> .config
-          echo "CONFIG_PACKAGE_amneziawg-tools=y" >> .config
-          echo "CONFIG_PACKAGE_luci-app-amneziawg=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-crypto-lib-chacha20=m" >> .config
-          echo "CONFIG_PACKAGE_kmod-crypto-lib-chacha20poly1305=m" >> .config
-          echo "CONFIG_PACKAGE_kmod-crypto-chacha20poly1305=m" >> .config
+          wget $BASE_URL/config.buildinfo -O .config
+          
+          {
+            echo "CONFIG_PACKAGE_kmod-amneziawg=m"
+            echo "CONFIG_PACKAGE_amneziawg-tools=y"
+            echo "CONFIG_PACKAGE_luci-app-amneziawg=y"
+            echo "CONFIG_PACKAGE_kmod-crypto-lib-chacha20=m"
+            echo "CONFIG_PACKAGE_kmod-crypto-lib-chacha20poly1305=m"
+            echo "CONFIG_PACKAGE_kmod-crypto-chacha20poly1305=m"
+          } >> .config
 
           make defconfig
 
-          echo "    > make tools/install"
-          make tools/install -i -j `nproc`
+          make tools/install -i -j$(nproc)
+          make toolchain/install -i -j$(nproc)
 
-          cat ./build_dir/target-*/linux-*/linux-*/.vermagic || true
+          make target/linux/compile -i -j$(nproc) V=s
 
-          echo "    > make toolchain/install"
-          make toolchain/install  -i -j `nproc`
-
-          cat ./build_dir/target-*/linux-*/linux-*/.vermagic || true
-
-          # compile kernel module
-          echo "    > make target/linux/compile"
-          make target/linux/compile  -i -j `nproc` V=s
-
-          VERMAGIC=`cat ./build_dir/target-*/linux-*/linux-*/.vermagic`
-          VERMAGIC_EXPECTED=${{ matrix.build_env.vermagic }}
-
-          if [ "$VERMAGIC" != "$VERMAGIC_EXPECTED" ]; then
-            echo Vermagic mismatch: $VERMAGIC, expected $VERMAGIC_EXPECTED
+          CURRENT_VERMAGIC=`cat ./build_dir/target-*/linux-*/linux-*/.vermagic`
+          echo "Detected Vermagic: $CURRENT_VERMAGIC"
+          
+          if [ "$CURRENT_VERMAGIC" != "${{ matrix.build_env.vermagic }}" ]; then
+            echo "Error: Vermagic mismatch! Expected ${{ matrix.build_env.vermagic }} but got $CURRENT_VERMAGIC"
+            # Если ты хочешь, чтобы билд не падал, а просто выводил инфо — закомментируй exit 1
             exit 1
           fi
 
-      - name: Build AmneziaWG
+      - name: Build AmneziaWG Packages
         run: |
-          VERMAGIC=`cat ./build_dir/target-*/linux-*/linux-*/.vermagic`
-          echo "Vermagic: $VERMAGIC"
-
-          VERMAGIC_EXPECTED=${{ matrix.build_env.vermagic }}
-
-          if [ "$VERMAGIC" != "$VERMAGIC_EXPECTED" ]; then
-            echo Vermagic mismatch: $VERMAGIC, expected $VERMAGIC_EXPECTED
-            exit 1
-          fi
-
-          # Ignore kmod build for some targets, replace with the awg-go
-          make package/kmod-amneziawg/{clean,download,prepare} V=s || true
-          make package/kmod-amneziawg/compile V=s || true
-
-          make package/luci-app-amneziawg/{clean,download,prepare}
+          make package/kmod-amneziawg/compile V=s
+          make package/amneziawg-tools/compile V=s
           make package/luci-app-amneziawg/compile V=s
-
-          make V=s package/amneziawg-tools/{clean,download,prepare}
-          make V=s package/amneziawg-tools/compile
 
       - name: Prepare artifacts
         run: |
-          tag_name=${{  github.ref_name }}
           mkdir -p awgrelease
-          postfix="${tag_name}_v${{ matrix.build_env.tag }}_${{ matrix.build_env.pkgarch}}_${{ matrix.build_env.target}}_${{ matrix.build_env.subtarget}}"
-          cp bin/packages/${{ matrix.build_env.pkgarch }}/awgopenwrt/amneziawg-tools_*.ipk awgrelease/amneziawg-tools_${postfix}.ipk
-          cp bin/packages/${{ matrix.build_env.pkgarch }}/awgopenwrt/luci-app-amneziawg_*.ipk awgrelease/luci-app-amneziawg_${postfix}.ipk
-          cp bin/targets/${{ matrix.build_env.target}}/${{ matrix.build_env.subtarget}}/packages/kmod-amneziawg_*.ipk awgrelease/kmod-amneziawg_${postfix}.ipk
+          tag_name=${{ github.ref_name }}
+          postfix="immortal_${tag_name}_v${{ matrix.build_env.tag }}_${{ matrix.build_env.pkgarch}}"
+          
+          find bin/ -name "amneziawg-tools*.ipk" -exec cp {} awgrelease/amneziawg-tools_${postfix}.ipk \;
+          find bin/ -name "luci-app-amneziawg*.ipk" -exec cp {} awgrelease/luci-app-amneziawg_${postfix}.ipk \;
+          find bin/ -name "kmod-amneziawg*.ipk" -exec cp {} awgrelease/kmod-amneziawg_${postfix}.ipk \;
 
       - name: Release
         uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           files: awgrelease/*.ipk
-
