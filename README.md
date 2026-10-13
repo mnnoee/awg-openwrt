@@ -1,13 +1,28 @@
 ![Release downloads](https://img.shields.io/endpoint?url=https%3A%2F%2Fslava-shchipunov.github.io%2Fawg-openwrt%2Fdownloads.json)
 
-# Пакеты amneziawg для роутеров с прошивкой OpenWRT
+# Пакеты amneziawg (AWG 3.1) для прошивки ImmortalWrt
 
-## Custom package feed (GitHub Pages)
+## Сборка под ImmortalWrt 25.12.2 (этот форк)
 
-Репозиторий также публикует полноценный [OpenWRT package feed](https://slava-shchipunov.github.io/awg-openwrt/)
-для apk на OpenWrt 25.x и новее.
+| | |
+|---|---|
+| прошивка | ImmortalWrt 25.12.2 (r38135-0c4cd0f9920a) |
+| target/subtarget | ramips / mt7621, pkgarch mipsel_24kc |
+| ядро | 6.12.103, vermagic 6a2bf6a139096c2bbdc3e52f4b809523 |
+| пакеты | kmod-amneziawg 3.1.20260906, amneziawg-tools 3.1.20260812, luci-proto-amneziawg 3.1.0, luci-i18n-amneziawg-ru |
 
-[Подробная документация](docs/custom-feed.md)
+Actions → Build AWG 3.1 for ImmortalWrt 25.12.2 → Run workflow.
+Готовые `.apk` — в релизе с тегом `immortalwrt-25.12.2-mt7621`.
+
+Установка:
+
+```
+apk add --allow-untrusted kmod-amneziawg.apk amneziawg-tools.apk luci-proto-amneziawg.apk luci-i18n-amneziawg-ru.apk
+```
+
+Новые параметры AWG 3.1 (`awg_header_protection_key`, `awg_random_trailers`,
+`awg_disable_cookies`, rekey/keepalive) требуют поддержки на серверной стороне
+туннеля; конфиги AWG 2.0 совместимы.
 
 ## Автоматическая настройка AmneziaWG для OpenWRT версии 23.05.0 и более новых
 
